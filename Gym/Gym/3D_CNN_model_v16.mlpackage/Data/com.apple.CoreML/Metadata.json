@@ -1,0 +1,18 @@
+{
+  "MLModelCreatorDefinedKey" : {
+    "classes" : "Panca,Squat,Stacco",
+    "Target Frame Rate" : "30.0",
+    "com.apple.createml.training.started" : "2025-06-06T09:41:23Z",
+    "type" : "action_classification",
+    "com.apple.createml.model.created" : "2025-06-07T13:25:42Z",
+    "com.apple.createml.version" : "15.4.1",
+    "target" : "label",
+    "com.apple.createml.app.tag" : "151.2",
+    "max_iterations" : "20",
+    "com.apple.coreml.model.preview.type" : "actionClassifier",
+    "Prediction Window Size" : "240",
+    "com.apple.createml.training.finished" : "2025-06-07T13:25:42Z",
+    "com.apple.createml.app.version" : "6.2"
+  },
+  "MLModelAuthorKey" : "Gianluca Latronico"
+}
