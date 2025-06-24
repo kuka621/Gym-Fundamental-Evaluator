@@ -7,31 +7,35 @@
 import Vision
 import CoreGraphics
 import UIKit
-
+/**
+ Salvare i risultati delle analisi quali ripetizioni corrette svolte, ripetiizoni scorrette svolte, errori svolti e angoli (debug)
+ */
 struct PoseAnalysisResult {
     var repetitionCount: Int
     var incompleteCount: Int
     var errors: [String]
     var angles: [Double]
 }
-
+//Funzione per Panca
 func processBench(from poses: [VNHumanBodyPoseObservation]) -> PoseAnalysisResult {
     var angles: [Double] = []
     let errors: [String] = []
-    let frameRate = 30.0 // o calcolato dinamicamente se disponibile
-    let secondsToDrop: Double = 3.0 // per panca, oppure 2.0 per stacco
+    //variabili per rimozione secondi finali per evitare il conteggio di ripetizioni date dai movimenti
+    //eseguiti per fermare la registrazione
+    let frameRate = 30.0
+    let secondsToDrop: Double = 2.5
 
     var correctCount = 0
     let incorrectCount = 0
-
+    //Stati della FSM quali lokedOut = braccia distese, descending = fase di discesa e rising = fase di salita
     enum State {
         case lockedOut
         case descending
-        case bottom
         case rising
     }
 
     var state: State = .lockedOut
+    //Variabili usate per controlli sugli esercizi
     var minAngle: Double = 180.0
     var consecutiveLockoutFrames = 0
     let lockoutThreshold = 145.0
@@ -40,7 +44,9 @@ func processBench(from poses: [VNHumanBodyPoseObservation]) -> PoseAnalysisResul
     let dropCount = Int(frameRate * secondsToDrop)
     let effectivePoses = poses.dropLast(dropCount)
     
-
+    /*  Logica usata: se parte da lockout e scende sotto soglia allora passa a descending dove se angolo minore della soglia allora passa a rising e in questo stato superata solgia di lockout ripetizione viene contata
+        Nessun controllo sulla correttezza dell'esecuzione per via di problematiche di rilevazine keypoint
+     */
     for pose in effectivePoses {
         guard let angle = calculateArmAngle(from: pose) else { continue }
         angles.append(angle)
@@ -53,7 +59,6 @@ func processBench(from poses: [VNHumanBodyPoseObservation]) -> PoseAnalysisResul
             } else {
                 consecutiveLockoutFrames += 1
                 if consecutiveLockoutFrames >= lockoutStableFrames {
-                    // Stabile in lockout: sicuro pronto
                     consecutiveLockoutFrames = 0
                 }
             }
@@ -72,9 +77,6 @@ func processBench(from poses: [VNHumanBodyPoseObservation]) -> PoseAnalysisResul
                 state = .lockedOut
                 minAngle = 180.0
             }
-
-        default:
-            break
         }
     }
 
@@ -85,66 +87,82 @@ func processBench(from poses: [VNHumanBodyPoseObservation]) -> PoseAnalysisResul
         angles: angles
     )
 }
-
+//Funzione per stacco
 func processDeadlift(from poses: [VNHumanBodyPoseObservation]) -> PoseAnalysisResult {
     var angles: [Double] = []
     var errors: [String] = []
     var correctCount = 0
     var incorrectCount = 0
-
+    //variabili per rimozione secondi finali per evitare il conteggio di ripetizioni date dai movimenti
+    //eseguiti per fermare la registrazione
+    let frameRate = 30.0
+    let secondsToDrop: Double = 1.5
+    let dropCount = Int(frameRate * secondsToDrop)
+    let effectivePoses = poses.dropLast(dropCount)
+    //Stati della FSM quali idle = posizione inziale, descending = fase di discesa e rising = fase di salita
     enum State {
         case idle
-        case lowering
+        case descending
         case rising
     }
-
+    //Variabili usate per controlli sugli esercizi
     var state: State = .idle
     var hasReachedDepth = false
-    var alreadyCountedThisRep = false
-
+    var repAlreadyCounted = false
+    var minAngle: Double = 180.0
     let validDepth = 95.0
     let lockoutThreshold = 140.0
-
-    for (_, pose) in poses.enumerated() {
+    
+    /*  Logica usata: si parte da idle poisizione iniziale, se l'angolo scende sotto la soglia si passa a descending dove viene reigistrato l'angolo minimo raggiunto e controllo sulla soglia di profondità se valida passaggio a rising dove vengono conteggiate ripetizioni corrette e scorrette
+     */
+    for pose in effectivePoses {
         guard let angle = calculateHipAngle(from: pose) else { continue }
         angles.append(angle)
-
+        
         switch state {
         case .idle:
             if angle < validDepth {
-                state = .lowering
+                state = .descending
                 hasReachedDepth = true
-                alreadyCountedThisRep = false
+                minAngle = angle
+                repAlreadyCounted = false
             }
-
-        case .lowering:
+            
+        case .descending:
+            if angle < minAngle {
+                minAngle = angle
+            }
             if angle >= validDepth {
                 state = .rising
             }
-
+            
         case .rising:
             if angle >= lockoutThreshold {
-                if hasReachedDepth && !alreadyCountedThisRep {
-                    correctCount += 1
-                    alreadyCountedThisRep = true
+                if hasReachedDepth && !repAlreadyCounted {
+                    if minAngle < validDepth {
+                        correctCount += 1
+                    } else {
+                        incorrectCount += 1
+                        errors.append("Deadlift troppo corto: scendi di più")
+                    }
+                    repAlreadyCounted = true
                 }
                 state = .idle
+                
             } else if angle < validDepth {
-                if hasReachedDepth && !alreadyCountedThisRep {
+                if hasReachedDepth && !repAlreadyCounted {
                     incorrectCount += 1
-                    errors.append("Ripetizione incompleta: non sei arrivato abbastanza in alto")
-                    alreadyCountedThisRep = true
+                    errors.append("Non sei salito abbastanza")
+                    repAlreadyCounted = true
                 }
-                state = .lowering // torna giù
+                state = .descending
+                hasReachedDepth = true
+                minAngle = angle
+                repAlreadyCounted = false
             }
         }
     }
-
-    // Non contiamo l’ultima come errore se non è stata completata
-    if state == .rising && (angles.last ?? 180) < lockoutThreshold && !alreadyCountedThisRep {
-        // Non fare nulla
-    }
-
+    
     return PoseAnalysisResult(
         repetitionCount: correctCount,
         incompleteCount: incorrectCount,
@@ -152,33 +170,34 @@ func processDeadlift(from poses: [VNHumanBodyPoseObservation]) -> PoseAnalysisRe
         angles: angles
     )
 }
-
-
+//Funzione squat
 func processSquat(from poses: [VNHumanBodyPoseObservation]) -> PoseAnalysisResult {
     var angles: [Double] = []
     var errors: [String] = []
 
     var correctCount = 0
     var incorrectCount = 0
-
+    
+    //Stati della FSM quali standing = in piedi, descending = fase di discesa e rising = fase di salita
     enum State {
         case standing
         case descending
-        case bottom
         case rising
     }
-
+    //Variabili usate per controlli sugli esercizi
     var state: State = .standing
     var minAngle: Double = 180.0
     var isDescending = false
-
-    let upThreshold = 150.0       // Considerato posizione in piedi
-    let validDepth = 110.0         // Sotto questo valore è un buon squat
-
+    var repAlreadyCounted = false
+    let upThreshold = 150.0
+    let validDepth = 110.0
+    /**
+     Logica usata: Se angolo scende sotto la soglia superiore allora passa a fase descending dove viene salvato angolo minimo e se si supera l'angolo minimo di 5 allora parte fase rising dove vengono salvate riperizioni corrette e scorrette
+     */
     for pose in poses {
         guard let angle = calculateKneeAngle(from: pose) else { continue }
         angles.append(angle)
-
+        
         switch state {
         case .standing:
             if angle < upThreshold {
@@ -186,7 +205,7 @@ func processSquat(from poses: [VNHumanBodyPoseObservation]) -> PoseAnalysisResul
                 minAngle = angle
                 isDescending = true
             }
-
+            
         case .descending:
             if angle < minAngle {
                 minAngle = angle
@@ -194,23 +213,23 @@ func processSquat(from poses: [VNHumanBodyPoseObservation]) -> PoseAnalysisResul
             if angle >= minAngle + 5 {
                 state = .rising
             }
-
+            
         case .rising:
             if angle > upThreshold {
-                if isDescending {
+                if isDescending && !repAlreadyCounted {
                     if minAngle < validDepth {
                         correctCount += 1
                     } else {
                         incorrectCount += 1
                         errors.append("Squat troppo alto, scendi di più")
                     }
-                    isDescending = false
-                    state = .standing
+                    repAlreadyCounted = true
                 }
+                isDescending = false
+                state = .standing
+            } else {
+                repAlreadyCounted = false
             }
-
-        default:
-            break
         }
     }
 
@@ -222,7 +241,7 @@ func processSquat(from poses: [VNHumanBodyPoseObservation]) -> PoseAnalysisResul
     )
 }
 
-
+//Funzione per calcolo angolo anca ginocchia e caviglia
 func calculateKneeAngle(from pose: VNHumanBodyPoseObservation) -> Double? {
     guard let hip = try? pose.recognizedPoint(.leftHip),
           let knee = try? pose.recognizedPoint(.leftKnee),
@@ -233,13 +252,12 @@ func calculateKneeAngle(from pose: VNHumanBodyPoseObservation) -> Double? {
 
     return angleBetween(p1: hip.location, p2: knee.location, p3: ankle.location)
 }
-
+//Funzione per calcolare angolo spalla, gomito e polso sia sinistro sia destro per migliore valutazione
 func calculateArmAngle(from observation: VNHumanBodyPoseObservation) -> Double? {
     func point(_ jointName: VNHumanBodyPoseObservation.JointName) -> VNRecognizedPoint? {
         return try? observation.recognizedPoint(jointName)
     }
 
-    // Prende i punti necessari per entrambi i lati
     guard let rShoulder = point(.rightShoulder), let rElbow = point(.rightElbow), let rWrist = point(.rightWrist),
           let lShoulder = point(.leftShoulder), let lElbow = point(.leftElbow), let lWrist = point(.leftWrist),
           rShoulder.confidence > 0.3, rElbow.confidence > 0.3, rWrist.confidence > 0.3,
@@ -247,7 +265,6 @@ func calculateArmAngle(from observation: VNHumanBodyPoseObservation) -> Double? 
         return nil
     }
 
-    // Converte in CGPoint
     let rAngle = angleBetween(
         p1: CGPoint(x: rShoulder.x, y: rShoulder.y),
         p2: CGPoint(x: rElbow.x, y: rElbow.y),
@@ -259,12 +276,10 @@ func calculateArmAngle(from observation: VNHumanBodyPoseObservation) -> Double? 
         p2: CGPoint(x: lElbow.x, y: lElbow.y),
         p3: CGPoint(x: lWrist.x, y: lWrist.y)
     )
-
-    // Media dei due angoli
     let average = (rAngle + lAngle) / 2
     return average
 }
-
+//Funzione per calcolare angolo spalla anca e ginocchio
 func calculateHipAngle(from pose: VNHumanBodyPoseObservation) -> Double? {
     guard
         let shoulder = try? pose.recognizedPoint(.rightShoulder),
@@ -280,7 +295,7 @@ func calculateHipAngle(from pose: VNHumanBodyPoseObservation) -> Double? {
     return angleBetween(p1: shoulder.location, p2: hip.location, p3: knee.location)
 }
 
-
+//Funzione per calcolare angolo tra tre punti
 func angleBetween(p1: CGPoint, p2: CGPoint, p3: CGPoint) -> Double {
     let v1 = CGVector(dx: p1.x - p2.x, dy: p1.y - p2.y)
     let v2 = CGVector(dx: p3.x - p2.x, dy: p3.y - p2.y)

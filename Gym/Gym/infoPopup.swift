@@ -6,7 +6,7 @@
 //
 
 import SwiftUI
-
+//Classe per alert con informazioni sulla visualizzazione popup con mantenimento in memoria
 class ExercisePopupMessage: ObservableObject {
     @AppStorage("hasSeenBenchPopup") var hasSeenBenchPopup = false
     @AppStorage("hasSeenSquatPopup") var hasSeenSquatPopup = false

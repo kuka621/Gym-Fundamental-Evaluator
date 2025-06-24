@@ -5,9 +5,10 @@ import Foundation
 import CoreGraphics
 import CoreML
 
+//Mappa keypoints
 typealias Keypoints = [VNHumanBodyPoseObservation.JointName: CGPoint?]
 
-// MARK: - Estrai frames da un video (compatibile con iOS 18+)
+//Estrazione frames da un video con massimo 240 frame (per via del modello utilizzato)
 func extractAllFrames(from videoURL: URL, frameCount: Int = 240) async -> [CGImage] {
     var cgImages: [CGImage] = []
     
@@ -18,12 +19,12 @@ func extractAllFrames(from videoURL: URL, frameCount: Int = 240) async -> [CGIma
     do {
         let duration = try await asset.load(.duration)
         let totalSeconds = CMTimeGetSeconds(duration)
-        print("Ecco i  sevondi: \(totalSeconds)")
+        print("Durata in secondi: \(totalSeconds)")
 
         for i in 0..<frameCount {
             let time = CMTimeMakeWithSeconds(Double(i) * totalSeconds / Double(frameCount), preferredTimescale: 600)
             let cgImage = try await generateCGImageAsync(generator: generator, for: time)
-            cgImages.append(cgImage) // Usa direttamente CGImage
+            cgImages.append(cgImage)
         }
     } catch {
         print("Errore durante l’estrazione dei frame: \(error)")
@@ -31,7 +32,7 @@ func extractAllFrames(from videoURL: URL, frameCount: Int = 240) async -> [CGIma
 
     return cgImages
 }
-
+//Estrazione di CGImage nel video
 func generateCGImageAsync(generator: AVAssetImageGenerator, for time: CMTime) async throws -> CGImage {
     return try await withCheckedThrowingContinuation { continuation in
         generator.generateCGImageAsynchronously(for: time) { cgImage, actualTime, error in
@@ -46,9 +47,7 @@ func generateCGImageAsync(generator: AVAssetImageGenerator, for time: CMTime) as
     }
 }
 
-
-
-// MARK: - Estrai keypoint da una singola immagine (18 valori)
+//Estrazione keypoint da una singola immagine
 func extractPoseKeypoints(from cgImage: CGImage) -> [Float]? {
     let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
     let request = VNDetectHumanBodyPoseRequest()
@@ -58,7 +57,7 @@ func extractPoseKeypoints(from cgImage: CGImage) -> [Float]? {
         guard let observation = request.results?.first as? VNHumanBodyPoseObservation else { return nil }
         let recognizedPoints = try observation.recognizedPoints(.all)
         
-        // Prendi solo i keypoint che ti servono
+        // Utilizzo dei keypoint richiesti dal modello
         let keypointNames: [VNHumanBodyPoseObservation.JointName] = [
             .nose, .neck,
             .rightShoulder, .rightElbow, .rightWrist,
@@ -90,18 +89,22 @@ func extractPoseKeypoints(from cgImage: CGImage) -> [Float]? {
     }
 }
 
-// MARK: - Predizione con modello Core ML
+//Predizione in base al modello 3D-CNN che prende in input [240 x 3 x 18]
 func predictWithPoseArray(
-    poseSequences: [[[Float]]], // [210][3][18]
+    poseSequences: [[[Float]]],
     model: MLModel,
     inputName: String = "poses"
 ) throws -> MLFeatureProvider {
+    // Inizializza array multidimensionale
     let multiArray = try MLMultiArray(shape: [240, 3, 18] as [NSNumber], dataType: .float32)
-    
+    //Index dei frame
     for i in 0..<240 {
+        //Index su x, y, e confidence
         for j in 0..<3 {
+            //index keypoints
             for k in 0..<18 {
                 let value = poseSequences[i][j][k]
+                //conversione indice 3D a 1D
                 let index = i * 3 * 18 + j * 18 + k
                 multiArray[index] = NSNumber(value: value)
             }
@@ -113,7 +116,7 @@ func predictWithPoseArray(
     return result
 }
 
-// MARK: - Funzione principale per analizzare un video
+// Funzione principale per analizzare un video
 func analyzeVideoWith3DCNN(videoURL: URL, model: MLModel) async throws -> (label: String, probabilities: [String: Double]) {
     let cgFrames = await extractAllFrames(from: videoURL)
     guard cgFrames.count == 240 else {
@@ -124,7 +127,7 @@ func analyzeVideoWith3DCNN(videoURL: URL, model: MLModel) async throws -> (label
 
     for i in 0..<240 {
         guard let keypoints = extractPoseKeypoints(from: cgFrames[i]) else {
-            print("⚠️ Nessuna posa rilevata al frame \(i), inserisco zeri.")
+            print("Nessuna posa rilevata al frame \(i), inserisco zeri.")
             let emptyFramePose = Array(repeating: Array(repeating: Float(0.0), count: 18), count: 3)
             poseArray.append(emptyFramePose)
             continue

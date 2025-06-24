@@ -6,7 +6,7 @@
 //
 
 import SwiftUI
-
+//View sul recap del conteggio ripetizioni con corrette e scorrette e visualizzazione errori
 struct RecapView: View {
     let result: PoseAnalysisResult
     @Environment(\.dismiss) var dismiss

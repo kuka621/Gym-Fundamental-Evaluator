@@ -8,15 +8,20 @@
 import SwiftUI
 
 struct ContentView: View {
+    //Se mostrare la cameraView o no
     @State private var showCamera = false
+    //Esercizio scelto
     @State private var selectedExercise: String = ""
+    //mostrare o no popup sulle informazioni base
     @State private var showPopup = false
+    //messaggio del popup
     @State private var popupMessage = ""
-
+    //gestione popup
     @StateObject private var popup = ExercisePopupMessage()
     
     var body: some View {
         ZStack {
+            //Mostrare o no la cameraView in base alla selezione
             if showCamera {
                 
                 CameraView(esercizio: selectedExercise, dismissAction: {
@@ -29,6 +34,7 @@ struct ContentView: View {
                     
                 }
             } else {
+                //Schermata di home con nome, immagine e tre bottoni esercizi
                 VStack(spacing: 20) {
                     
                     Text("Gym App")
@@ -89,6 +95,7 @@ struct ContentView: View {
             }
         }
     }
+    //Gestione bottone premuto, se prima volta mostra popup, altrimenti apre cameraView
     func handleExerciseTap(_ exercise: String) {
            selectedExercise = exercise
            let (shouldShow, message) = popup.shouldShowPopup(for: exercise)
@@ -101,8 +108,8 @@ struct ContentView: View {
            }
        }
    }
-
-   struct CustomButtonStyle: ButtonStyle {
+    //stile bottoni
+    struct CustomButtonStyle: ButtonStyle {
        func makeBody(configuration: Configuration) -> some View {
            configuration.label
                .padding()

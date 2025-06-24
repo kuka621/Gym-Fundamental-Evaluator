@@ -10,9 +10,11 @@ import CoreGraphics
 import UIKit
 
 class PostProcessingManager {
-    
+    //Istanza globale
     static let shared = PostProcessingManager()
-    
+    /**
+     Estrae i frame dal video usando VNDetectHumanBodyPoseRequest, dopodiche passa i risultati alla funzione delle pose in base all'esercizio selezionato e restituendo il risultato dell'analisi
+     */
     func analyze(videoURL: URL, forExercise exerciseType: String, completion: @escaping (PoseAnalysisResult) -> Void) {
         var poses: [VNHumanBodyPoseObservation] = []
         let request = VNDetectHumanBodyPoseRequest()
@@ -29,7 +31,7 @@ class PostProcessingManager {
                             poses.append(result)
                         }
                     } catch {
-                        print("❌ Errore analisi pose: \(error.localizedDescription)")
+                        print("Errore analisi pose: \(error.localizedDescription)")
                     }
                 }
             }
@@ -54,7 +56,7 @@ class PostProcessingManager {
             completion(result)
         }
     }
-    
+    //Estrae i frame dal video dividendoli in batch da 30
     func extractAndProcessFrames(
         from videoURL: URL,
         batchSize: Int = 30,
@@ -67,17 +69,17 @@ class PostProcessingManager {
             do {
                 let duration = try await asset.load(.duration)
                 let durationInSeconds = CMTimeGetSeconds(duration)
-                print("⏱ Durata video: \(durationInSeconds) secondi")
+                print("Durata video: \(durationInSeconds) secondi")
                 
                 let tracks = try await asset.loadTracks(withMediaType: .video)
                 guard let track = tracks.first else {
-                    print("❌ Nessuna traccia video trovata.")
+                    print("Nessuna traccia video trovata.")
                     completion()
                     return
                 }
 
                 let fps = try await track.load(.nominalFrameRate)
-                print("🎞 FPS: \(fps)")
+                print("FPS: \(fps)")
                 
                 let totalFrames = Int(durationInSeconds * Double(fps))
                 let imageGenerator = AVAssetImageGenerator(asset: asset)
@@ -85,7 +87,6 @@ class PostProcessingManager {
                 imageGenerator.requestedTimeToleranceAfter = .zero
                 imageGenerator.requestedTimeToleranceBefore = .zero
                 
-                // 🔄 Genera tutti i tempi necessari
                 var times: [NSValue] = []
                 for i in 0..<totalFrames {
                     let time = CMTime(seconds: Double(i) / Double(fps), preferredTimescale: CMTimeScale(fps))
@@ -104,15 +105,15 @@ class PostProcessingManager {
                             if let cgImage = cgImage {
                                 let image = UIImage(cgImage: cgImage)
                                 batchImages.append(image)
-                            }// else if let error = error {
+                            }
+                            /*// else if let error = error {
                                 //let seconds = requestedTime.seconds
                                 //print("⚠️ Errore frame @\(String(format: "%.2f", seconds))s: \(error.localizedDescription)")
-                            //}
+                            //}*/
                             batchGroup.leave()
                         }
                     }
                     
-                    // Aspetta il completamento del batch
                     await withCheckedContinuation { continuation in
                         batchGroup.notify(queue: .main) {
                             autoreleasepool {
@@ -121,15 +122,14 @@ class PostProcessingManager {
                             continuation.resume()
                         }
                     }
-                    
                     index += batchSize
                 }
                 
-                print("✅ Tutti i frame processati.")
+                print("Tutti i frame processati.")
                 completion()
                 
             } catch {
-                print("❌ Errore durante l'estrazione: \(error.localizedDescription)")
+                print("Errore durante l'estrazione: \(error.localizedDescription)")
                 completion()
             }
         }
